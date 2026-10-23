@@ -750,7 +750,7 @@ def settings_page():
     st.caption('No advertising, external analytics, AI scoring, microphone capture, bank connection, or paid API key is used. Your entries are not sent to a language model. Authentication and synced records use your configured Supabase project.')
 
 
-style(st.session_state.get('dark',False))
+style()
 try:
     store=RunStore(authenticate())
     initialize()
@@ -760,8 +760,7 @@ try:
         pages=['Today','Planner','Focus','Coding practice','Career & learning','Job market','Voice & confidence','Money','Reflect','Resources','Your space']
         page=st.radio('Your daily space',pages,key='page',label_visibility='collapsed')
         st.divider()
-        dark=st.toggle('Dark mode',key='dark')
-        style(dark)
+        st.caption('Appearance: open ⋮ → Settings → Theme, then choose Light or Dark. All modules follow the same theme.')
         live_clock()
         st.caption('Asia/Manila · UTC+8')
         st.caption('Temporary demo' if store.mode=='demo' else 'Private local records' if store.mode=='local' else 'Signed in · synced records')

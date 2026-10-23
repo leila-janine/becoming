@@ -16,12 +16,10 @@ class AppTests(unittest.TestCase):
     def nav(self,page):
         self.at.sidebar.radio[0].set_value(page).run()
         self.assert_clean()
-    def test_every_page_and_dark_mode(self):
+    def test_every_page_renders(self):
         self.assert_clean()
         for page in ['Planner','Focus','Coding practice','Career & learning','Job market','Voice & confidence','Money','Reflect','Resources','Your space','Today']:
             self.nav(page)
-        self.at.sidebar.toggle[0].set_value(True).run()
-        self.assert_clean()
     def test_checkin_persists(self):
         self.at.text_input[0].set_value('One useful next step')
         next(b for b in self.at.button if b.label=='Shape my day').click().run()
