@@ -58,13 +58,38 @@ def subtract_intervals(start, end, blocked):
     return gaps
 
 
-def day_blocks(profile, selected, events, leave=False):
-    blocks = []
-    if DAYS[selected.weekday()] in profile['workdays'] and not leave:
-        blocks.append({'start': minute(profile['work_start']), 'end': minute(profile['work_end']), 'title': 'Remote work', 'kind': 'protected'})
-    # These editable defaults reserve meals and transitions rather than fill every gap.
-    for a, b, title in [('08:00','08:30','Breakfast'), ('12:00','13:00','Lunch / break'), ('18:00','19:00','Dinner & decompress')]:
-        blocks.append({'start': minute(a), 'end': minute(b), 'title': title, 'kind': 'rest'})
+def routine_blocks(profile):
+    return profile.get('routine', [
+        {'start':480,'end':510,'title':'Breakfast','kind':'rest'},
+        {'start':720,'end':780,'title':'Lunch / break','kind':'rest'},
+        {'start':1080,'end':1140,'title':'Dinner & decompress','kind':'rest'},
+    ])
+
+
+def validate_schedule(blocks):
+    if not isinstance(blocks, list) or len(blocks)>100:
+        raise ValueError('Use up to 100 time blocks.')
+    for b in blocks:
+        if not isinstance(b,dict) or not isinstance(b.get('title'),str) or not b['title'].strip():
+            raise ValueError('Every time block needs an activity name.')
+        if any(type(b.get(k)) is not int for k in ['start','end']) or not 0<=b['start']<b['end']<1440:
+            raise ValueError('Each block needs an end after its start. Split overnight blocks into two days.')
+        if b.get('kind') not in ['work','rest','personal']:
+            raise ValueError('Choose Work, Rest, or Personal for each block.')
+    return blocks
+
+
+def task_status(task):
+    # Old records remain compatible with the original completion checkbox.
+    return 'Completed' if task.get('done') else 'Ongoing' if task.get('status')=='Ongoing' else 'New'
+
+
+def day_blocks(profile, selected, events, leave=False, schedule=None):
+    blocks = [dict(b) for b in schedule] if schedule is not None else [dict(b) for b in routine_blocks(profile)]
+    if schedule is None and DAYS[selected.weekday()] in profile['workdays']:
+        blocks.append({'start': minute(profile['work_start']), 'end': minute(profile['work_end']), 'title': 'Remote work', 'kind': 'work'})
+    if leave:
+        blocks=[b for b in blocks if b['kind']!='work']
     for e in events:
         if e['date'] == selected.isoformat():
             blocks.append({'start': minute(e['start']), 'end': minute(e['end']), 'title': e['title'], 'kind': 'event'})
@@ -79,8 +104,8 @@ def rank_tasks(tasks, selected):
     return sorted(active, key=score)
 
 
-def make_plan(profile, selected, tasks, events, budget=45, energy=3, leave=False, current=None):
-    blocks = day_blocks(profile, selected, events, leave)
+def make_plan(profile, selected, tasks, events, budget=45, energy=3, leave=False, current=None, schedule=None):
+    blocks = day_blocks(profile, selected, events, leave, schedule)
     start, end = minute(profile['wake']), minute(profile['sleep'])
     current = current or now()
     if selected == current.date():

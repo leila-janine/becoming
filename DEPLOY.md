@@ -18,7 +18,9 @@ Do not upload `.venv`, `data`, personal JSON backups, or `__pycache__`. The incl
 4. Since this is a personal app, disable new public signups in Authentication settings after you have your own account. Setting names may vary as the provider updates its UI.
 5. From the project’s API settings/connect dialog, copy the **project URL** and **publishable key** (or legacy **anon key**). Never use a secret / service-role key. Those keys can bypass the row restrictions this app depends on.
 
-Database schema: one row per record, associated with `auth.users.id`. RLS permits authenticated users to read and write only their own rows. Unauthenticated visitors cannot read this table. An unconfigured deployment shows only a temporary per-session demo, never a shared personal SQLite file.
+Database schema: one row per record, associated with `auth.users.id`. RLS permits authenticated users to read and write only their own rows. Unauthenticated visitors cannot read this table. An unconfigured deployment shows a setup message; there is no public demo or shared personal SQLite fallback.
+
+The configurable planner, task statuses, Pomodoro, and money dashboard update uses the existing JSON payloads. No schema migration or new secrets are required for an already configured app.
 
 ## 3. Deploy
 
@@ -42,9 +44,9 @@ You should then receive a `streamlit.app` URL. Open that same URL on your phone 
 
 - Save a check-in on your PC. Open the app on another device, sign in, and confirm the record after Refresh.
 - Restart/reboot the Streamlit app and verify the record survives.
-- Sign out. Verify personal records are not shown in the login or demo views.
+- Sign out. Verify personal records are not shown and there is no demo entry.
 - If testing with a second account, verify it cannot see the first account’s entries. In Supabase, inspect the table’s RLS policy and confirm the table is not readable by the `anon` role.
-- Add a weekday optical-shop task with a 10:00–15:00 window. Confirm the planner defers it while 09:00–18:00 work is protected.
+- Add a weekday optical-shop task with a 10:00–15:00 window. Confirm the planner defers it while 09:00–18:00 work is scheduled. Edit that day’s work block and confirm Today and the weekly preview follow the saved change.
 - Test light/dark mode and scrolling on phone, tablet, and PC. Check that the sidebar can be opened on a small screen and that forms are readable.
 - Download and restore a test backup containing disposable records. Restore merges by ID; it does not replace the whole database.
 
@@ -56,7 +58,7 @@ The cloud request behavior is covered by mocked tests, but **live authentication
 
 **Could not load or sync:** run the SQL script, confirm the project URL and publishable key, and verify the project is active and reachable. Sign out and in again if the session expired. The app intentionally does not substitute an empty local database when cloud sync fails.
 
-**Only the demo appears:** deployment secrets are missing. Add the two top-level TOML settings exactly as shown and reboot the app.
+**A connection setup message appears:** deployment secrets are missing. Add the two top-level TOML settings exactly as shown and reboot the app.
 
 **Module not found:** confirm `requirements.txt` is at the repository root and the entry point is `app.py`. Reboot after pushing corrected dependency files.
 
@@ -64,7 +66,7 @@ The cloud request behavior is covered by mocked tests, but **live authentication
 
 **Timer resets after reload:** focus timers are session state, not durable background jobs. Log completed work manually if the browser reconnects. A logged session is durable; an unfinished running timer is not.
 
-**No suitable slot:** check the selected date, current PHT time, remaining focus budget, task duration, allowed window, workdays, meals, and commitments. A time budget cannot create free time inside a protected block.
+**No suitable slot:** check the selected date, current PHT time, remaining focus budget, task duration, allowed window, and saved time blocks. Edit Your schedule for one-off changes or Your space for recurring changes. An appointment never silently cancels another block.
 
 **Need reminders while the app is closed:** download the day’s `.ics` file and import it into your calendar. Set any notifications in that calendar. Becoming does not currently send notifications or automatically sync calendar changes.
 
@@ -74,3 +76,9 @@ The cloud request behavior is covered by mocked tests, but **live authentication
 - [Streamlit secrets management](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)
 - [Supabase password authentication](https://supabase.com/docs/guides/auth/passwords)
 - [Supabase row-level security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+
+## After connecting an existing deployment
+
+Reload the app after saving the two Secrets values. A configured app shows Email and Password sign-in. Use the email/password user in your Supabase project; your Supabase dashboard password and database password are different accounts/credentials. Keep row-level security enabled. Test by saving one non-sensitive check-in, reloading, and signing in on a second device.
+
+The schema creates the table and access rules only. It does not create the project, create your user account, or automatically connect Streamlit. Use the API Project URL (`https://PROJECT.supabase.co`), not a PostgreSQL connection string. A new `sb_publishable_...` key can be placed in the app's existing `SUPABASE_ANON_KEY` setting; the legacy setting name is retained for compatibility. Never substitute a secret/service-role key.

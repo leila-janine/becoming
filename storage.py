@@ -76,15 +76,22 @@ def validate_backup(data):
             for key in ['start','end','work_start','work_end','wake','sleep']:
                 if row.get(key): daytime.fromisoformat(row[key])
             if collection=='tasks':
+                if 'status' in row and row['status'] not in ['New','Ongoing','Completed']: raise ValueError('Invalid task status.')
                 if row['area'] not in ['Life admin','Graduation','Career','Learning','Voice & confidence','Wellbeing'] or not 5<=row['minutes']<=480 or row['priority'] not in [1,2,3]: raise ValueError('Invalid task values.')
                 if row.get('window'):
                     if not isinstance(row['window'],list) or len(row['window'])!=2: raise ValueError('Invalid time window.')
                     a,b=[daytime.fromisoformat(v) for v in row['window']]
                     if a>=b: raise ValueError('Invalid time window order.')
             if collection=='profile':
+                if 'routine' in row:
+                    from domain import validate_schedule
+                    validate_schedule(row['routine'])
                 if row['id']!='main' or not set(row['workdays']) <= {'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'} or not 0<=row['buffer']<=30: raise ValueError('Invalid profile.')
                 if daytime.fromisoformat(row['work_start'])>=daytime.fromisoformat(row['work_end']) or daytime.fromisoformat(row['wake'])>=daytime.fromisoformat(row['sleep']): raise ValueError('Invalid daily rhythm.')
             if collection=='checkins' and (not 1<=row['energy']<=5 or not 0<=row['minutes']<=240): raise ValueError('Invalid daily capacity.')
+            if collection=='checkins' and 'schedule' in row:
+                from domain import validate_schedule
+                validate_schedule(row['schedule'])
             if collection=='learning':
                 if row['kind']=='goal':
                     if row.get('status') not in ['Considering','Studying','Scheduled','Earned / completed']: raise ValueError('Invalid learning status.')

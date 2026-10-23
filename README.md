@@ -2,20 +2,20 @@
 
 A personal daily workspace for Leila: calm structure, practical growth, and room for an ordinary human day. Built in **Streamlit**, with warm neutral light mode and a matching dark mode.
 
-**Start with `DEPLOY.md` to put it online.** Nothing in this download is already deployed. A temporary demo works without a database; personal cross-device records require the included Supabase setup.
+**Start with `DEPLOY.md` for deployment setup.** Cloud access requires your Supabase email/password account. The public demo entry has been removed. For private development on your own PC, use local mode below.
 
 ## What you can do
 
 | Space | Working features |
 | --- | --- |
 | Today | PHT clock, energy check-in, intention, remaining focus budget, up to three feasible next steps, task completion |
-| Planner | Editable tasks, next actions, deadlines, availability dates, time windows, commitments, leave-aware daily plan, seven-day preview, `.ics` calendar export |
-| Focus | Five-minute quick start, adjustable elapsed-time timer, explicit session logging, manual offline session entry |
+| Planner | Editable daily time blocks, recurring routines, reschedulable appointments, New/Ongoing/Completed task filters, next actions, deadlines, availability dates, time windows, seven-day preview, `.ics` focus calendar export |
+| Focus | Pomodoro 25/5, gentle 15/5, deep work 50/10, custom intervals, long breaks, pause/resume, five-minute quick start, focus-only session logging, manual offline entry |
 | Coding practice | Eleven original exercises across AI engineering, data engineering, analytics, Python, Dart/Flutter, and SQL/systems, downloadable starters and checks, hints and worked solutions, scheduled practice tasks, attempt log, debugging notebook, review dates |
 | Career & learning | AI Engineer, Data Engineer, Data Analytics, and Software Engineering paths in your priority order, official resource links, credential goals and status, recall cards with review dates, project evidence, text export |
 | Job market | Dated employer examples, exact experience requirements, opportunity and application tracking, evidence mapping, and practical ways to gain relevant experience |
 | Voice & confidence | Thought outlines, technical explanation, career story, question and boundary practice, self-rated clarity and participation history |
-| Money | PHP monthly allocation, essentials, joy, irregular costs, education, emergency savings, investing; transaction log and CSV export; contribution-only savings estimate |
+| Money | Input-driven dashboard, income/expense/transfer summaries, category chart, daily spending trend, six-month comparisons, plan versus actual, editable transaction log and CSV export, contribution-only savings estimate |
 | Reflect | Evening reflection, weekly reset, energy history, logged practice and focus activity |
 | Resources | Curated research / professional / official resources, applications and limitations |
 | Your space | Name, work pattern, waking day, transitions, target role, refresh, full JSON export / validated restore, record deletion |
@@ -26,11 +26,11 @@ A personal daily workspace for Leila: calm structure, practical growth, and room
 - Graduation: December 2026 context; a task prompts you to confirm official requirements. No exact school deadline is invented.
 - Move: first week of November 2026. **7 November is only a provisional planning target** and is labelled that way. Set the actual date in Planner → Tasks.
 - Glasses: 10:00–15:00 shop window. Opening days, appointment availability, travel time, and exact duration are unconfirmed. A weekday visit conflicts with normal work and is not silently scheduled over it.
-- Meals and decompression use default protected blocks at 08:00–08:30, 12:00–13:00, and 18:00–19:00. Their times are currently configured in `domain.py`, rather than editable in the interface.
+- Meals start at 08:00–08:30, 12:00–13:00, and 18:00–19:00. Edit the recurring blocks in Your space or change just one day in Planner. Work hours can also be changed per day.
 - Money starts with **no assumed salary or account balances**. Enter your current situation.
 - No credential, exam result, achievement, or project metric is assumed to be earned.
 
-## Try it without an account
+## Run on your own PC
 
 Install Python **3.11 or 3.12**. This version was tested using Python 3.12.14 and Streamlit 1.66.1.
 
@@ -42,7 +42,7 @@ py -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Choose **Explore a temporary demo**. Demo data belongs to that Streamlit session only and may reset on reload or reconnection. Use Your space → Download a full backup before leaving if you want to keep it.
+The normal app requires a configured Supabase account. There is no demo button or demo access through session state.
 
 For durable records on your own PC, run these instead after installing dependencies:
 
@@ -67,7 +67,13 @@ Local records live in `data/becoming.sqlite`. Back up both this file and periodi
 
 ## Scheduling behavior
 
-Plans avoid protected work, meal blocks, and fixed commitments. Work remains protected even if an appointment overlaps it; explicitly mark approved leave to remove that day’s work block. Tasks with time windows require a full-duration slot. Other tasks can be suggested as a smaller focus slice; finishing a slice does not automatically complete the whole task.
+Plans avoid the time blocks you configure and your appointments. Planner → Day & week → Your schedule lets you add, edit, or delete blocks for a selected date. Saving an empty schedule intentionally clears the routine for that date. Reset restores your recurring routine. Day off excludes Work blocks. Appointments stay separate and can be edited or rescheduled in their tab. Your space controls recurring workdays, work hours, and meal/personal blocks. Daily overrides are preserved when the routine changes.
+
+Saved daily schedules also feed Today and the seven-day preview. Tasks use New, Ongoing, and Completed statuses; older unfinished records appear as New. A five-minute task start marks it Ongoing. Tasks with time windows need a full-duration slot; other tasks can receive a focus slice. Completing a slice does not complete the whole task.
+
+Focus intervals use wall time and can be paused. Completed intervals are saved only when you choose to save them; Pomodoro then starts a short or long break. Breaks are not logged as worked minutes. Returning from another page preserves the active timer within that session, but reloading, reconnecting, signing out, or a server restart may lose it. Old active timers are upgraded as single focus sessions.
+
+The Money dashboard updates after each saved ledger or budget entry. Net logged cash flow subtracts expenses and savings/investment transfers from logged income; it is not a bank balance. Charts exclude future-dated entries. Daily zeroes mean no expenses logged. Current-month spending compares to the same number of calendar days in the previous month; complete historical months compare to the complete prior month. Savings and investment transfers are shown separately from expenses.
 
 The planner prioritizes tasks due within three days, then importance and deadline. Low energy caps suggestions at one short step; ordinary energy permits at most three. Capacity limits and transition buffers are **transparent product heuristics**, not diagnostic tools or claims about ideal productivity. A budget is not a promise that a free slot exists.
 
@@ -97,14 +103,16 @@ The supplied reference principles informed a single primary task on Today, clear
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Tests cover scheduling conflicts, energy limits, elapsed-time planning, budget edge cases, local persistence, recall intervals, backup validation, cloud request scoping and pagination, plus Streamlit page navigation, theme changes, and core forms. See `VALIDATION.md` for the actual result and limits. A configured live Supabase project and a real phone/tablet check are still required during deployment.
+Tests cover editable scheduling, energy limits, task transitions, Pomodoro timing, transfer accounting, budget edge cases, local persistence, recall intervals, backup validation, cloud request scoping and pagination, plus Streamlit text navigation and core forms. See `VALIDATION.md` for the actual result and limits. A configured live Supabase project and a real phone/tablet check are still required during deployment.
 
 ## Project layout
 
 - `app.py`: Streamlit interface and flows
 - `domain.py`: scheduling, budget, and review rules
 - `coding.py`: original coding challenges, starter-file generation, and review suggestions
-- `storage.py`: demo, SQLite, authenticated cloud storage, backup validation
+- `storage.py`: SQLite, authenticated cloud storage, in-memory test store, backup validation
+- `focus_timer.py`: focus/break intervals, pause/resume, and elapsed-time arithmetic
+- `money_analytics.py`: ledger totals, monthly comparisons, categories, and plan-versus-actual calculations
 - `ui.py`: neutral theme, cards, responsive typography
 - `content.py`: cited resources, paths, and exercise prompts
 - `supabase_schema.sql`: user-owned records and RLS policy
@@ -124,3 +132,7 @@ The download includes `practice_starters/` and `worked_solutions/` for offline u
 AI Engineer is first, followed by Data Engineer, Data Analytics, and Software Engineering. Coding defaults to AI engineering and includes model evaluation, repeatable batch loading, and analytical denominators alongside the existing foundations. Your resume informs starting strengths; it is not an independently verified skills assessment. See `CAREER-AND-MARKET.md` for the dated employer research and the distinction between professional work, internships, and project evidence. The original resume and its private contact details are not included in this source package.
 
 For an existing database, rerun `supabase_schema.sql` to allow the new `jobs` record category. Existing records remain in place. The app upgrades the earlier generated “Backend / AI application developer” default to AI Engineer while preserving a target you customized.
+
+## Appearance
+
+Use the app’s upper-right menu → Settings → Theme → Light or Dark. This single native theme controls widgets, tables, menus, charts, and the custom cards together. The earlier sidebar CSS-only toggle was removed because it could leave controls in a conflicting palette. Text and button labels wrap, cards have no fixed text heights, and the main content clears the fixed header.

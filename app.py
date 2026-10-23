@@ -12,8 +12,11 @@ from content import SOURCES, TRACKS, PROMPTS, WEEKLY_PROMPTS, CAREER_PRIORITIES,
 from career import CHECKED_ON, JOB_EXAMPLES, EVIDENCE_TYPES, EXPERIENCE_BRIDGES
 from coding import CHALLENGES, practice_file, recommend, review_date
 from domain import (TZ, AREAS, DAYS, now, uid, minute, clock, default_profile, seed_tasks,
-                    make_plan, day_blocks, budget_summary, months_to_goal, next_review)
-from storage import (LocalStore, MemoryStore, CloudStore, StorageError, auth_request,
+                    make_plan, day_blocks, budget_summary, months_to_goal, next_review,
+                    routine_blocks, validate_schedule, task_status)
+from focus_timer import start_timer, remaining, pause, resume, advance
+from money_analytics import money_dashboard
+from storage import (LocalStore, CloudStore, StorageError, auth_request,
                      get_record, export_records, COLLECTIONS, RunStore, validate_backup)
 from ui import style, hero, card, gentle, stat, esc
 
@@ -58,13 +61,31 @@ def records(collection):
 
 
 def complete(task):
-    save('tasks', {**task, 'done': True, 'completed_at': now().isoformat()})
+    saved=get_record(store,'tasks',task['id'],task)
+    save('tasks', {**saved, 'done': True, 'status':'Completed', 'completed_at': now().isoformat()})
     st.rerun()
 
 
-def quick_start(title):
-    st.session_state.timer = {'end':time.time()+300,'minutes':5,'title':title,'id':uid()}
+def quick_start(title, task_id=None):
+    if not st.session_state.get('timer'):
+        st.session_state.timer = start_timer(title,5,pomodoro=False)
+        if task_id:
+            task=get_record(store,'tasks',task_id)
+            if task and not task.get('done'): store.put('tasks',{**task,'status':'Ongoing'})
     st.session_state.page = 'Focus'
+
+
+def navigate(page):
+    st.session_state.page=page
+
+
+def plan_for(day, check, budget=None, energy=None, leave=None):
+    logged=sum(s.get('minutes',0) for s in records('sessions') if s['date']==day.isoformat())
+    return make_plan(profile,day,records('tasks'),records('events'),
+                     max(0,(check.get('minutes',45) if budget is None else budget)-logged),
+                     check.get('energy',3) if energy is None else energy,
+                     check.get('leave',False) if leave is None else leave,
+                     schedule=check.get('schedule'))
 
 
 def label_date(value):
@@ -75,8 +96,6 @@ def authenticate():
     url, key = secret('SUPABASE_URL'), secret('SUPABASE_ANON_KEY')
     if os.environ.get('BECOMING_LOCAL') == '1':
         return LocalStore(ROOT / 'data' / 'becoming.sqlite')
-    if st.session_state.get('demo'):
-        return MemoryStore(st.session_state.setdefault('demo_records', {}))
     if url and key and st.session_state.get('auth'):
         session = st.session_state.auth
         if session.get('expires_at', 0) <= time.time() + 60:
@@ -107,11 +126,7 @@ def authenticate():
                         st.error(str(exc))
             st.caption('Use the account created in your Supabase project. Reset a forgotten password through your project administrator.')
         else:
-            card('Ready to explore', 'Try the working demo now. For your own synced records, follow DEPLOY.md to connect your private account.', 'YOUR DATA STAYS YOURS')
-        if st.button('Explore a temporary demo', width='stretch'):
-            st.session_state.demo = True
-            st.rerun()
-        st.caption('Demo entries live only in this browser session and may reset on reload. Export them before leaving. No personal records are shared with other visitors.')
+            st.info('Your personal space is being connected. Add SUPABASE_URL and SUPABASE_ANON_KEY in the app’s Streamlit secrets to enable sign-in.')
     st.stop()
 
 
@@ -127,12 +142,12 @@ def today_page():
             budget = b.number_input('Focus minutes outside work', min_value=0, max_value=240, value=int(check['minutes']), step=5)
             intention = st.text_input('What would make today feel worthwhile?', value=check.get('intention',''), placeholder='One thing that matters, even if it is small.')
             if st.form_submit_button('Shape my day', type='primary'):
-                save('checkins', {'id':TODAY.isoformat(),'energy':energy,'minutes':budget,'intention':intention,'saved_at':now().isoformat()})
+                save('checkins', {**check,'id':TODAY.isoformat(),'energy':energy,'minutes':budget,'intention':intention,'saved_at':now().isoformat()})
                 st.rerun()
     tasks, events = records('tasks'), records('events')
     done = [t for t in tasks if t.get('completed_at','').startswith(TODAY.isoformat()) and t.get('done')]
     study = sum(x.get('minutes',0) for x in records('sessions') if x['date']==TODAY.isoformat())
-    plan = make_plan(profile, TODAY, tasks, events, max(0,check['minutes']-study), check['energy'], leave=check.get('leave',False))
+    plan = plan_for(TODAY, check)
     a,b,c = st.columns(3)
     with a: stat(f'{len(done)}', 'steps finished today')
     with b: stat(f'{plan["used"]} min', 'suggested focus outside work')
@@ -150,7 +165,7 @@ def today_page():
                 st.write(t['next'])
                 if t['slice']: st.caption('This is a focus slice, not the whole task. Mark the task done only when it is finished.')
                 a,b=st.columns(2)
-                a.button('Start a 5-minute step', key='start_'+t['id'], width='stretch',on_click=quick_start,args=(t['title'],))
+                a.button('Start a 5-minute step', key='start_'+t['id'], width='stretch',on_click=quick_start,args=(t['title'],t['id']))
                 if b.button('Mark task done',key='done_'+t['id'],width='stretch'): complete(t)
         if plan['deferred']:
             with st.expander(f'{len(plan["deferred"])} other tasks · no need to do them all today'):
@@ -164,7 +179,7 @@ def today_page():
         for block in schedule:
             if block['end'] <= now().hour*60+now().minute: continue
             st.markdown(f'<div class="timeline"><div class="time">{clock(block["start"])} – {clock(block["end"])} PHT</div><p><strong>{esc(block["title"])}</strong></p><div class="time">{esc(block["kind"].title())}</div></div>',unsafe_allow_html=True)
-        st.caption('Meal blocks are planning defaults. Work and breaks may overlap; focus suggestions avoid both.')
+        st.caption('Edit today’s time blocks in Planner. Your saved schedule guides focus suggestions here.')
         card('A small promise', 'If I notice myself waiting to feel ready, I will open the task and do its first five minutes.', 'TRY AN IF–THEN PLAN')
         gentle('A difficult day is information. Tomorrow’s plan can be smaller.')
 
@@ -178,6 +193,7 @@ def task_form(task=None):
         area=a.selectbox('Area',AREAS,index=AREAS.index(t['area']))
         minutes=b.number_input('Estimated total minutes',5,480,int(t['minutes']),5)
         priority=c.selectbox('Importance',[1,2,3],index=int(t['priority'])-1,format_func=lambda n:{1:'Useful',2:'Important',3:'Essential'}[n])
+        status=st.selectbox('Task status',['New','Ongoing','Completed'],index=['New','Ongoing','Completed'].index(task_status(t)))
         due=st.date_input('Deadline (clear if unknown)',value=date.fromisoformat(t['due']) if t.get('due') else None)
         not_before=st.date_input('Available from (optional)',value=date.fromisoformat(t['not_before']) if t.get('not_before') else None)
         note=st.text_area('Notes / unconfirmed details',value=t.get('note',''))
@@ -190,8 +206,30 @@ def task_form(task=None):
             elif window and wend<=wstart: st.info('The time window must end after it starts.')
             elif due and not_before and not_before>due: st.info('Availability must start on or before the deadline.')
             else:
-                save('tasks',{**t,'title':title.strip(),'next':action.strip(),'area':area,'minutes':minutes,'priority':priority,'due':due.isoformat() if due else None,'not_before':not_before.isoformat() if not_before else None,'note':note,'window':[wstart.strftime('%H:%M'),wend.strftime('%H:%M')] if window else None})
+                save('tasks',{**t,'title':title.strip(),'next':action.strip(),'area':area,'minutes':minutes,'priority':priority,'status':status,'done':status=='Completed','completed_at':(t.get('completed_at') or now().isoformat()) if status=='Completed' else '', 'due':due.isoformat() if due else None,'not_before':not_before.isoformat() if not_before else None,'note':note,'window':[wstart.strftime('%H:%M'),wend.strftime('%H:%M')] if window else None})
                 st.rerun()
+
+
+def schedule_editor(blocks, key):
+    kinds={'work':'Work','rest':'Rest','personal':'Personal'}
+    rows=[{'Activity':b['title'],'Start':dtime(b['start']//60,b['start']%60),
+           'End':dtime(b['end']//60,b['end']%60),'Kind':kinds[b['kind']]} for b in blocks]
+    frame=pd.DataFrame(rows,columns=['Activity','Start','End','Kind'])
+    return st.data_editor(frame,hide_index=True,num_rows='dynamic',width='stretch',key=key,
+        column_config={'Activity':st.column_config.TextColumn(required=True),
+                       'Start':st.column_config.TimeColumn('Start (PHT)',format='HH:mm',required=True,step=60),
+                       'End':st.column_config.TimeColumn('End (PHT)',format='HH:mm',required=True,step=60),
+                       'Kind':st.column_config.SelectboxColumn(options=['Work','Rest','Personal'],default='Personal',required=True)})
+
+
+def schedule_rows(frame):
+    blocks=[]
+    for row in frame.to_dict('records'):
+        if not isinstance(row['Activity'],str) or not row['Activity'].strip() or not isinstance(row['Start'],dtime) or not isinstance(row['End'],dtime):
+            raise ValueError('Give each row an activity, start, and end, or delete the unused row.')
+        blocks.append({'title':row['Activity'].strip(),'start':row['Start'].hour*60+row['Start'].minute,
+                       'end':row['End'].hour*60+row['End'].minute,'kind':str(row.get('Kind','Personal')).lower()})
+    return validate_schedule(blocks)
 
 
 def planner_page():
@@ -203,15 +241,33 @@ def planner_page():
         a,b,c=st.columns(3)
         energy=a.select_slider('Planning energy',[1,2,3,4,5],value=int(check['energy']))
         budget=b.number_input('Focus budget (minutes)',0,240,int(check['minutes']),5)
-        leave=c.checkbox('Approved day off from work',value=bool(check.get('leave',False)),help='Only choose this after leave is approved. Events alone never cancel your work block.')
+        leave=c.checkbox('Day off from work',value=bool(check.get('leave',False)),help='Excludes blocks marked Work from this day’s plan. You can also edit individual work hours below.')
         if st.button('Save this day’s capacity'):
             save('checkins',{**check,'id':selected.isoformat(),'energy':energy,'minutes':budget,'leave':leave,'saved_at':now().isoformat()})
             st.rerun()
-        logged=sum(s.get('minutes',0) for s in records('sessions') if s['date']==selected.isoformat())
-        plan=make_plan(profile,selected,records('tasks'),records('events'),max(0,budget-logged),energy,leave)
+        st.markdown('#### Your schedule')
+        st.caption('Change any block when your day changes. Add a row at the bottom; select a row to delete it. Appointments are managed in the Appointments tab.')
+        if check.get('schedule') is not None: st.caption('Using your custom schedule for this date.')
+        else: st.caption('Starting from your recurring routine in Your space.')
+        with st.form('schedule_'+selected.isoformat()):
+            edited=schedule_editor(check.get('schedule') if check.get('schedule') is not None else day_blocks(profile,selected,[]),
+                                   f'daily_schedule_{selected}_{check.get("schedule_version",0)}')
+            if st.form_submit_button('Save schedule',type='primary'):
+                try:
+                    blocks=schedule_rows(edited)
+                    save('checkins',{**check,'id':selected.isoformat(),'schedule':blocks,'schedule_version':check.get('schedule_version',0)+1})
+                    st.rerun()
+                except ValueError as exc: st.info(str(exc))
+        if st.button('Reset this day to my routine'):
+            updated={k:v for k,v in check.items() if k!='schedule'}
+            save('checkins',{**updated,'id':selected.isoformat(),'schedule_version':check.get('schedule_version',0)+1})
+            st.rerun()
+        plan=plan_for(selected,check,budget,energy,leave)
         if selected<TODAY: st.caption('Historical planning view. This does not recreate previously suggested schedules.')
-        st.markdown('#### Protected commitments')
-        for block in plan['blocks']: st.write(f'{clock(block["start"])}–{clock(block["end"])} · {block["title"]}')
+        for i,block in enumerate(plan['blocks']):
+            for other in plan['blocks'][:i]:
+                if block['start']<other['end'] and other['start']<block['end'] and not ({block['kind'],other['kind']}=={'work','rest'}):
+                    st.caption(f'Time overlap: {block["title"]} and {other["title"]}. Edit the blocks if these need separate time.')
         st.markdown('#### Suggested focus')
         for t in plan['plan']: card(t['title'],t['next'],f'{clock(t["start"])}–{clock(t["end"])} PHT · {t["area"]}')
         if not plan['plan']: gentle('No free focus slot fits. Try a smaller task, another day, or a different focus budget.')
@@ -222,9 +278,9 @@ def planner_page():
         for i in range(7):
             day=selected+timedelta(days=i)
             ch=get_record(store,'checkins',day.isoformat(),{'energy':3,'minutes':45})
-            logged=sum(s.get('minutes',0) for s in records('sessions') if s['date']==day.isoformat())
-            p=make_plan(profile,day,records('tasks'),records('events'),max(0,ch['minutes']-logged),ch['energy'],ch.get('leave',False))
-            rows.append({'Day':day.strftime('%a %d %b'),'Work':'Approved leave' if ch.get('leave') else profile['work_start']+'–'+profile['work_end'] if DAYS[day.weekday()] in profile['workdays'] else 'Off','Focus suggestions':', '.join(x['title'] for x in p['plan']) or 'Open / rest','Minutes':p['used']})
+            p=plan_for(day,ch)
+            work=', '.join(clock(b['start'])+'–'+clock(b['end']) for b in p['blocks'] if b['kind']=='work') or 'Off'
+            rows.append({'Day':day.strftime('%a %d %b'),'Work':work,'Focus suggestions':', '.join(x['title'] for x in p['plan']) or 'Open / rest','Minutes':p['used']})
         st.dataframe(pd.DataFrame(rows),hide_index=True,width='stretch')
         st.caption('Each day is an independent preview, so an unfinished task may appear more than once. Mark it complete or change “Available from” to move it.')
         ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Becoming//Personal planner//EN']
@@ -238,18 +294,17 @@ def planner_page():
         st.caption('Calendar export is manual. This app does not send reminders while closed.')
     with tab2:
         with st.expander('Add a task'): task_form()
-        view=st.radio('Show',['Open','Completed'],horizontal=True)
-        for t in records('tasks'):
-            if bool(t.get('done')) != (view=='Completed'): continue
-            with st.expander(t['title']+' · '+label_date(t.get('due'))):
+        view=st.selectbox('Filter status',['New','Ongoing','Completed'])
+        visible=[t for t in records('tasks') if task_status(t)==view]
+        if not visible: gentle(f'No {view.lower()} tasks here. Change the filter or add your next step.')
+        for t in visible:
+            with st.expander(t['title']+' · '+view+' · '+label_date(t.get('due'))):
                 st.caption(t.get('note',''))
                 a,b=st.columns(2)
-                if a.button('Reopen' if t.get('done') else 'Mark done',key='toggle'+t['id']):
-                    row={**t,'done':not t.get('done')}
-                    row['completed_at']=now().isoformat() if row['done'] else ''
-                    save('tasks',row); st.rerun()
-                if b.button('Archive task',key='delete'+t['id']):
-                    save('tasks',{**t,'done':True,'note':t.get('note','')+' [Archived]'}); st.rerun()
+                next_status={'New':'Ongoing','Ongoing':'Completed','Completed':'New'}[view]
+                if a.button({'New':'Start task','Ongoing':'Mark completed','Completed':'Reopen task'}[view],key='toggle'+t['id']):
+                    save('tasks',{**t,'status':next_status,'done':next_status=='Completed','completed_at':now().isoformat() if next_status=='Completed' else ''}); st.rerun()
+                if view!='Completed': b.button('Focus on this task',key='taskfocus'+t['id'],on_click=quick_start,args=(t['title'],t['id']))
                 task_form(t)
     with tab3:
         with st.form('event'):
@@ -265,8 +320,16 @@ def planner_page():
         for e in sorted(records('events'),key=lambda x:(x['date'],x['start'])):
             with st.container(border=True):
                 st.write(f'{label_date(e["date"])} · {e["start"]}–{e["end"]} · {e["title"]}')
-                if DAYS[date.fromisoformat(e['date']).weekday()] in profile['workdays'] and minute(e['start'])<minute(profile['work_end']) and minute(e['end'])>minute(profile['work_start']):
-                    st.info('Overlaps your work hours. Arrange leave or edit the appointment. The work block remains protected.')
+                with st.form('event_edit_'+e['id']):
+                    title=st.text_input('Activity',e['title'])
+                    day=st.date_input('Reschedule date',date.fromisoformat(e['date']))
+                    a,b=st.columns(2)
+                    start=a.time_input('Starts (PHT)',dtime.fromisoformat(e['start']))
+                    end=b.time_input('Ends (PHT)',dtime.fromisoformat(e['end']))
+                    if st.form_submit_button('Save appointment'):
+                        if not title.strip() or end<=start: st.info('Add an activity and an end after the start.')
+                        else:
+                            save('events',{**e,'title':title.strip(),'date':day.isoformat(),'start':start.strftime('%H:%M'),'end':end.strftime('%H:%M')}); st.rerun()
                 if st.button('Remove commitment',key='evdel'+e['id']): store.delete('events',e['id']); st.rerun()
 
 
@@ -274,32 +337,57 @@ def planner_page():
 def running_timer():
     timer=st.session_state.get('timer')
     if not timer: return
-    remaining=max(0,int(timer['end']-time.time()))
-    st.markdown(f'## {remaining//60:02d}:{remaining%60:02d}')
+    seconds=remaining(timer)
+    st.caption(f'{timer["phase"].upper()} · ROUND {timer["round"]}'+(' · PAUSED' if timer.get('paused') else ''))
+    st.markdown(f'<div class="timer-face" role="timer" aria-label="{timer["phase"]} time remaining">{seconds//60:02d}:{seconds%60:02d}</div>',unsafe_allow_html=True)
+    st.progress(min(1.,max(0.,1-seconds/timer['duration'])))
     st.write(timer['title'])
-    if remaining==0:
-        gentle('Your focus time is complete. You can stop here, take a break, or log what moved forward.')
-        if st.button('Log this focus session',type='primary'):
-            save('sessions',{'id':timer['id'],'date':TODAY.isoformat(),'minutes':timer['minutes'],'title':timer['title']})
-            st.session_state.pop('timer',None); st.rerun()
+    if seconds==0:
+        if timer['phase']=='Focus':
+            gentle('Your focus interval is complete. Save it, then take a break. Breaks are not counted as focus time.')
+            label='Save focus & start break' if timer['pomodoro'] else 'Save focus session'
+            if st.button(label,type='primary'):
+                save('sessions',{'id':timer['id']+'-'+str(timer['round']),'date':now().date().isoformat(),'minutes':timer['minutes'],'title':timer['title']})
+                if timer['pomodoro']: st.session_state.timer=advance(timer)
+                else: st.session_state.pop('timer',None)
+                st.rerun()
+        else:
+            gentle('Break complete. Choose one small next action when you are ready.')
+            if st.button('Start next focus interval',type='primary'):
+                st.session_state.timer=advance(timer); st.rerun()
+    else:
+        a,b=st.columns(2)
+        if a.button('Resume' if timer.get('paused') else 'Pause',width='stretch'):
+            st.session_state.timer=resume(timer) if timer.get('paused') else pause(timer)
+            st.rerun()
+        if timer['phase']!='Focus' and b.button('Skip break',width='stretch'):
+            st.session_state.timer=advance(timer); st.rerun()
     if st.button('End timer without logging'):
         st.session_state.pop('timer',None); st.rerun()
 
 
 def focus_page():
-    hero('One thing at a time', 'Begin before you feel ready.', 'Make the action small enough to start. A short session counts; a pause is allowed.')
+    hero('One thing at a time', 'A little focus. A real break.', 'Choose one action, give it a short interval, then step away. Adjust the rhythm to your energy.')
     a,b=st.columns([1.3,1],gap='large')
     with a:
         if st.session_state.get('timer'): running_timer()
         else:
+            technique=st.selectbox('Focus rhythm',['Pomodoro · 25 / 5','Gentle start · 15 / 5','Deep work · 50 / 10','Custom Pomodoro','Single focus session'])
             with st.form('focus'):
                 title=st.text_input('What will I work on?',placeholder='Open the file and write one paragraph.')
-                mins=st.select_slider('Focus minutes',[5,10,15,25,45],value=15)
+                presets={'Pomodoro · 25 / 5':(25,5),'Gentle start · 15 / 5':(15,5),'Deep work · 50 / 10':(50,10)}
+                mins,short=presets.get(technique,(25,5))
+                if technique in ['Custom Pomodoro','Single focus session']:
+                    mins=st.number_input('Focus minutes',1,120,25)
+                if technique=='Custom Pomodoro': short=st.number_input('Short break minutes',1,60,5)
+                long=st.number_input('Long break minutes',1,60,15,disabled=technique=='Single focus session')
+                every=st.number_input('Long break after this many focus intervals',1,8,4,disabled=technique=='Single focus session')
+                if technique!='Single focus session': st.caption(f'{mins} minutes focus → {short} minutes rest. Take a {long}-minute break after every {every} focus intervals.')
                 if st.form_submit_button('Begin focus',type='primary'):
                     if not title.strip(): st.info('Name one concrete action first.')
                     else:
-                        st.session_state.timer={'id':uid(),'end':time.time()+mins*60,'minutes':mins,'title':title.strip()}; st.rerun()
-            st.caption('The timer uses elapsed wall time while the session is alive. A reload may reset it. It does not send notifications when closed.')
+                        st.session_state.timer=start_timer(title.strip(),mins,short,long,every,technique!='Single focus session'); st.rerun()
+        st.caption('Pause or resume any interval. Save a finished focus interval to log it and begin its break. The timer continues across pages in this session; a reload or sign-out may reset it. No alerts are sent while the app is closed.')
         with st.expander('Already focused offline? Log it here'):
             with st.form('manual_focus'):
                 title=st.text_input('What did you work on?')
@@ -308,6 +396,7 @@ def focus_page():
                 if st.form_submit_button('Log focus'):
                     if title.strip(): save('sessions',{'id':uid(),'date':day.isoformat(),'minutes':mins,'title':title.strip()}); st.rerun()
     with b:
+        card('Your focus rhythm', 'Work on one action. When the timer finishes, save the interval and take your break. After four focus intervals, take a longer break. Shorten the intervals on a demanding day.', 'POMODORO')
         card('When I feel stuck', 'Name the obstacle: unclear, too big, uncomfortable, or interrupted. Change one thing: write the next action, shrink it, allow an imperfect draft, or move to a quieter place.', 'A PRACTICAL RESET')
         card('Make a specific plan', 'If [a reliable cue] happens, then I will [one visible action] for [a small amount of time].', 'IF → THEN')
         st.link_button('Read CCI’s procrastination workbook',SOURCES[0]['url'])
@@ -587,11 +676,66 @@ def market_page():
             st.success('Added to Planner within the same daily capacity limits.')
 
 
+def money_dashboard_view(month,budget):
+    data=money_dashboard(records('transactions'),month,budget,TODAY)
+    st.subheader('Your money at a glance')
+    st.caption(date.fromisoformat(month+'-01').strftime('%B %Y')+' · updates whenever you save an entry')
+    a,b=st.columns(2)
+    c,d=st.columns(2)
+    a.metric('Income received',f'₱{data["income"]:,.2f}')
+    b.metric('Expenses',f'₱{data["expense"]:,.2f}')
+    c.metric('Savings & investment transfers',f'₱{data["transfers"]:,.2f}')
+    d.metric('Net logged cash flow',f'₱{data["net"]:,.2f}')
+    st.caption('Net logged cash flow = income − expenses − transfers. It is not your bank balance. Transfers stay separate from spending; future-dated entries are excluded.')
+    if not data['rows']:
+        gentle('Your dashboard starts with your entries. Add income or an expense in Money log, then come back to see your patterns.')
+    elif not data['expense_count']:
+        gentle('Income or transfers are logged. Add expenses to see your spending patterns.')
+    else:
+        top=max(data['categories'],key=data['categories'].get)
+        share=100*data['categories'][top]/data['expense']
+        st.write(f'**{top}** is your largest spending category: **₱{data["categories"][top]:,.2f}** ({share:.0f}% of logged expenses).')
+        st.caption(f'{data["expense_count"]} expense entries · average ₱{data["daily_average"]:,.2f} per calendar day in this period. Missing entries affect these figures.')
+        prior=data['previous']['expense']
+        if prior:
+            delta=data['expense']-prior
+            st.write(f'Logged expenses are ₱{abs(delta):,.2f} {"higher" if delta>=0 else "lower"} than the comparable previous period.')
+            st.caption('Previous comparison ends '+data['previous_cutoff']+'. This compares your manual logs, not a complete bank statement.')
+    st.markdown('#### Where your spending goes')
+    if data['categories']:
+        frame=pd.DataFrame([{'Category':k,'Expenses (₱)':v} for k,v in data['categories'].items()]).sort_values('Expenses (₱)',ascending=False)
+        st.bar_chart(frame,x='Category',y='Expenses (₱)',color='#8E7B67',horizontal=True)
+        st.dataframe(frame,hide_index=True,width='stretch')
+    else: st.caption('No expense entries for this month yet.')
+    st.markdown('#### Daily spending')
+    if data['daily']:
+        start=date.fromisoformat(month+'-01')
+        stop=min(TODAY,(start.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1))
+        days=pd.date_range(start,stop,freq='D')
+        daily=pd.DataFrame({'Date':days,'Expenses (₱)':[data['daily'].get(d.date().isoformat(),0.) for d in days]})
+        st.line_chart(daily,x='Date',y='Expenses (₱)',color='#8E7B67')
+        st.caption('A zero means no expense was logged that day.')
+    else: st.caption('Your daily trend will appear after you log expenses.')
+    st.markdown('#### Plan versus actual')
+    st.dataframe(pd.DataFrame(data['comparison']),hide_index=True,width='stretch',
+                 column_config={k:st.column_config.NumberColumn(format='₱ %.2f') for k in ['Planned (₱)','Actual (₱)','Remaining (₱)']})
+    st.caption('Negative remaining means the logged amount exceeds your plan. Savings and investment rows show transfers toward those goals, not spending.')
+    joy=float(budget.get('joy',0))-data['categories'].get('Enjoyment',0)
+    if budget.get('joy',0): gentle(f'Your chosen enjoyment budget has ₱{joy:,.2f} remaining.' if joy>=0 else f'Enjoyment is ₱{abs(joy):,.2f} above this month’s plan. You can review the plan as your needs change.')
+    st.markdown('#### The last six months')
+    if any(row['Income'] or row['Expenses'] or row['Transfers'] for row in data['trend']):
+        trend=pd.DataFrame(data['trend'])
+        st.bar_chart(trend,x='Month',y=['Income','Expenses','Transfers'],stack=False,color=['#73836A','#8E7B67','#8A8096'])
+        st.dataframe(trend,hide_index=True,width='stretch')
+    else: st.caption('Monthly comparisons will grow as you add your entries.')
+
+
 def money_page():
     hero('Enough for now. Room for later.', 'Make your money feel intentional.', 'Start with your real income and expenses. Give each priority a place, including enjoyment, without assuming a perfect month.')
     month=st.date_input('Budget month',TODAY.replace(day=1)).strftime('%Y-%m')
     budget=get_record(store,'budgets',month,{'income':0.,'needs':0.,'joy':0.,'buffer':0.,'learning':0.,'emergency':0.,'investing':0.,'current_emergency':0.,'emergency_target':5000.})
-    tab1,tab2,tab3=st.tabs(['Monthly plan','Money log','Savings goal'])
+    dashboard,tab1,tab2,tab3=st.tabs(['Dashboard','Monthly plan','Money log','Savings goal'])
+    with dashboard: money_dashboard_view(month,budget)
     with tab1:
         with st.form('budget'):
             income=st.number_input('Expected take-home income (₱)',min_value=0.,value=float(budget['income']),step=500.)
@@ -616,7 +760,7 @@ def money_page():
         else: gentle('An enjoyment category gives you permission to spend intentionally. Revisit it when your needs or income change.')
     with tab2:
         with st.form('transaction'):
-            day=st.date_input('Transaction date',TODAY,key='txday')
+            day=st.date_input('Transaction date',TODAY,max_value=TODAY,key='txday')
             title=st.text_input('Description')
             kind=st.selectbox('Type',['Expense','Income','Savings transfer','Investment transfer'])
             category=st.selectbox('Category',['Essentials','Enjoyment','Move / glasses / irregular','Learning','Emergency savings','Investing','Other'])
@@ -635,6 +779,20 @@ def money_page():
         for t in tx:
             with st.expander(f'{t["date"]} · {t["title"]} · ₱{t["amount"]:,.2f}'):
                 st.write(t['type']+' / '+t['category'])
+                with st.form('transaction_edit_'+t['id']):
+                    tx_title=st.text_input('Entry description',t['title'])
+                    tx_date=st.date_input('Entry date',date.fromisoformat(t['date']),max_value=max(TODAY,date.fromisoformat(t['date'])))
+                    types=['Expense','Income','Savings transfer','Investment transfer']
+                    tx_type=st.selectbox('Entry type',types,index=types.index(t['type']))
+                    cats=['Essentials','Enjoyment','Move / glasses / irregular','Learning','Emergency savings','Investing','Other']
+                    if t['category'] not in cats: cats.append(t['category'])
+                    tx_cat=st.selectbox('Entry category',cats,index=cats.index(t['category']))
+                    tx_amount=st.number_input('Entry amount (₱)',min_value=0.01,value=float(t['amount']),step=10.)
+                    if st.form_submit_button('Save money entry'):
+                        if not tx_title.strip(): st.info('Add a description for this entry.')
+                        elif tx_date>TODAY: st.info('Use the date money actually moved. Use Monthly plan for future amounts.')
+                        else:
+                            save('transactions',{**t,'title':tx_title.strip(),'date':tx_date.isoformat(),'type':tx_type,'category':tx_cat,'amount':tx_amount}); st.rerun()
                 if st.button('Remove transaction',key='txdel'+t['id']): store.delete('transactions',t['id']); st.rerun()
         if tx: st.download_button('Export this month’s transactions',pd.DataFrame(tx).drop(columns='id').to_csv(index=False),'money-'+month+'.csv','text/csv')
     with tab3:
@@ -723,6 +881,16 @@ def settings_page():
             if not name.strip() or start>=end or wake>=sleep: st.info('Add your name and use end times after start times. Overnight schedules need two separate commitments.')
             else:
                 save('profile',{**profile,'name':name.strip(),'role':role,'target_role':target,'workdays':days,'work_start':start.strftime('%H:%M'),'work_end':end.strftime('%H:%M'),'wake':wake.strftime('%H:%M'),'sleep':sleep.strftime('%H:%M'),'buffer':buffer}); st.rerun()
+    st.subheader('Recurring meal & personal blocks')
+    st.caption('These blocks start each day’s schedule. Work hours come from the settings above. Daily overrides in Planner stay as you saved them.')
+    with st.form('routine'):
+        edited=schedule_editor(routine_blocks(profile),f'routine_editor_{profile.get("routine_version",0)}')
+        if st.form_submit_button('Save recurring blocks',type='primary'):
+            try:
+                blocks=schedule_rows(edited)
+                save('profile',{**profile,'routine':blocks,'routine_version':profile.get('routine_version',0)+1})
+                st.rerun()
+            except ValueError as exc: st.info(str(exc))
     st.markdown('### My data')
     st.caption('Cloud records are loaded on each interaction. Use Refresh to fetch updates from another device. Avoid editing the same record on two devices at once: the last saved edit wins.')
     if st.button('Refresh from my saved records'): st.rerun()
@@ -755,19 +923,23 @@ try:
     store=RunStore(authenticate())
     initialize()
     profile=get_record(store,'profile','main',default_profile())
+    if st.session_state.get('timer') and 'phase' not in st.session_state.timer:
+        old=st.session_state.timer
+        st.session_state.timer={**start_timer(old['title'],old['minutes'],pomodoro=False),**old}
     with st.sidebar:
         st.markdown('<div class="brand">becoming<span style="font-size:1.4rem"> ✧</span></div><div class="brand-sub">Room to grow, at your pace</div>',unsafe_allow_html=True)
         pages=['Today','Planner','Focus','Coding practice','Career & learning','Job market','Voice & confidence','Money','Reflect','Resources','Your space']
-        page=st.radio('Your daily space',pages,key='page',label_visibility='collapsed')
+        page=st.session_state.get('page','Today')
+        if page not in pages: page='Today'
+        for name in pages:
+            st.button(f'**{name}**' if name==page else name,key='nav_'+name,type='tertiary',width='stretch',on_click=navigate,args=(name,))
         st.divider()
-        st.caption('Appearance: open ⋮ → Settings → Theme, then choose Light or Dark. All modules follow the same theme.')
         live_clock()
         st.caption('Asia/Manila · UTC+8')
-        st.caption('Temporary demo' if store.mode=='demo' else 'Private local records' if store.mode=='local' else 'Signed in · synced records')
-        if store.mode=='demo':
-            if st.button('Leave demo'):
-                st.session_state.clear(); st.rerun()
-        elif store.mode=='cloud':
+        st.caption('Private local records' if store.mode=='local' else 'Signed in · synced records')
+        if st.session_state.get('timer'):
+            st.caption('Timer paused · return to Focus' if st.session_state.timer.get('paused') else 'Timer active · return to Focus')
+        if store.mode=='cloud':
             if st.button('Sign out'):
                 try:
                     requests.post(secret('SUPABASE_URL').rstrip('/')+'/auth/v1/logout',headers={'apikey':secret('SUPABASE_ANON_KEY'),'Authorization':'Bearer '+st.session_state.auth['access_token']},timeout=10)
@@ -775,7 +947,6 @@ try:
                 st.session_state.clear(); st.rerun()
         st.markdown('---')
         st.caption('A small step is still a step.')
-    if store.mode=='demo': st.caption('DEMO · Changes are temporary. Use Your space → Download a full backup to keep them.')
     {'Today':today_page,'Planner':planner_page,'Focus':focus_page,'Coding practice':coding_page,'Career & learning':growth_page,'Job market':market_page,'Voice & confidence':voice_page,'Money':money_page,'Reflect':reflect_page,'Resources':sources_page,'Your space':settings_page}[page]()
 except StorageError as exc:
     st.error(str(exc))

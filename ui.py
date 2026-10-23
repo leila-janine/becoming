@@ -42,6 +42,11 @@ def style():
     .timeline {border-left:2px solid var(--b-border);padding:.4rem 0 .8rem 1.2rem;margin-left:.5rem;}
     .timeline .time {font-size:.82rem;letter-spacing:.02em;line-height:1.7;}
     .timeline strong {font-weight:600;} .timeline p {margin:.15rem 0;font-size:.95rem;line-height:1.65;}
+    .timer-face {font:400 clamp(3rem,10vw,6rem)/1.35 Georgia,serif;letter-spacing:.03em;font-variant-numeric:tabular-nums;margin:.5rem 0;}
+    [data-testid="stSidebar"] button[kind="tertiary"] {justify-content:flex-start;text-align:left;border-radius:.6rem;padding:.45rem .65rem;}
+    [data-testid="stSidebar"] button[kind="tertiary"]:hover {background:var(--b-tint);color:inherit;}
+    [data-testid="stSidebar"] button[kind="tertiary"]:focus-visible {outline:2px solid currentColor;outline-offset:2px;}
+    [data-testid="stSidebar"] button[kind="tertiary"] strong {text-decoration:underline;text-underline-offset:.35rem;}
     [data-testid="stButton"] button,[data-testid="stDownloadButton"] button,[data-testid="stFormSubmitButton"] button,a[data-testid="stBaseLinkButton"] {min-height:44px;height:auto;}
     [data-testid="stButton"] button p,[data-testid="stDownloadButton"] button p,[data-testid="stFormSubmitButton"] button p,a[data-testid="stBaseLinkButton"] p {white-space:normal;overflow-wrap:anywhere;line-height:1.5;}
     [data-testid="stWidgetLabel"] p {white-space:normal;overflow-wrap:anywhere;line-height:1.6;}
