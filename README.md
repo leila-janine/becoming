@@ -11,7 +11,7 @@ A personal daily workspace for Leila: calm structure, practical growth, and room
 | Today | PHT clock, energy check-in, intention, remaining focus budget, up to three feasible next steps, task completion |
 | Planner | Editable daily time blocks, recurring routines, reschedulable appointments, New/Ongoing/Completed task filters, next actions, deadlines, availability dates, time windows, seven-day preview, `.ics` focus calendar export |
 | Focus | Pomodoro 25/5, gentle 15/5, deep work 50/10, custom intervals, long breaks, pause/resume, five-minute quick start, focus-only session logging, manual offline entry |
-| Coding practice | Eleven original exercises across AI engineering, data engineering, analytics, Python, Dart/Flutter, and SQL/systems, downloadable starters and checks, hints and worked solutions, scheduled practice tasks, attempt log, debugging notebook, review dates |
+| Coding practice | In-page Python/SQLite editor with Run, checks, output/errors, Stop, draft transfer and download; eleven exercises across AI, data, Python, Dart/Flutter, and SQL/systems; hints, solutions, attempt log, debugging notebook, review dates |
 | Career & learning | AI Engineer, Data Engineer, Data Analytics, and Software Engineering paths in your priority order, official resource links, credential goals and status, recall cards with review dates, project evidence, text export |
 | Job market | Dated employer examples, exact experience requirements, opportunity and application tracking, evidence mapping, and practical ways to gain relevant experience |
 | Voice & confidence | Thought outlines, technical explanation, career story, question and boundary practice, self-rated clarity and participation history |
@@ -95,7 +95,7 @@ The app supports reflection and communication practice. It cannot diagnose or tr
 
 ## Design decisions
 
-The supplied reference principles informed a single primary task on Today, clear type hierarchy, repeated card patterns, large tap targets, readable contrast, whitespace, visible instructions, progressive disclosure, and minimal initial navigation work. There are no fabricated reviews, social-proof counts, streak punishments, or urgent red/yellow dashboard states. Native Streamlit layouts stack columns on smaller screens; wide tables keep their own horizontal scroll. Both themes preserve page scrolling. Reduced-motion preferences are respected.
+The supplied reference principles informed a single primary task on Today, clear type hierarchy, large tap targets, readable contrast, whitespace, and progressive disclosure. Columns stack on phones and tablets through 1024px; narrow containers also stack nested columns. The earlier global `stColumn` min-width override was removed because it defeated Streamlit’s own phone breakpoint. Compact navigation appears above the page through 1024px, with Account & sync for refresh/sign-out. Desktop keeps text-button sidebar navigation. Tabs keep readable labels on a horizontal scroll strip. Planner and Money summaries become labelled cards on compact screens; bulk editable grids remain optional. Schedule blocks can be added, changed, and removed using ordinary touch-friendly forms. Monetary metrics wrap, code scrolls inside its own panel, inputs use a readable font size, and safe-area padding leaves room at the screen edge. Both themes and reduced-motion preferences are retained.
 
 ## Verification
 
@@ -121,7 +121,11 @@ Tests cover editable scheduling, energy limits, task transitions, Pomodoro timin
 
 ## Coding practice workflow
 
-Choose one track in Coding practice. Attempt an exercise in VS Code, run the supplied checks, explain one edge case, and save your approach. The app never executes submitted code on its server. Results are self-reported; a saved entry is not a verified assessment. Python and Dart exercise files are standalone. Use a disposable database for the SQL exercise. The API exercise is a design note rather than an executable task.
+Choose a track in Coding practice. Python and SQL exercises now have an in-page editor. Run code, inspect output/errors, or Run checks against the supplied exercise examples. SQL starts a fresh in-memory SQLite database with the exercise tables for each run. Run or Save draft to attempt transfers your code into the attempt form; Save coding practice stores that code with your account. The last saved attempt is loaded when you return. Code not transferred/saved can be lost on reload. Dart/Flutter uses DartPad or the local SDK; the API exercise remains a design note.
+
+Execution uses Pyodide 314.0.7 (Python 3.14.2) in a browser module worker. The runtime downloads from jsDelivr on first run; no compiler account/API key is needed. Submitted code is never executed by Streamlit or sent to an external compiler. Stop terminates the worker; execution has a 10-second timeout and bounded displayed output. Runtime loading has a separate 90-second timeout. The practice runner supports the standard library and SQLite, not interactive input, Flutter, GPUs, or a full installed ML stack. Browser results remain client-reported rather than a trusted assessment. Download files for larger projects or additional packages.
+
+Runtime references: [Pyodide setup](https://pyodide.org/en/stable/usage/quickstart.html), [worker execution](https://pyodide.org/en/stable/usage/webworker.html), [Streamlit component protocol](https://docs.streamlit.io/develop/concepts/custom-components/components-v1/intro).
 
 Hints, documentation, AI, and reviewers can help; record the support you used. Return to the concept later without copying. Review prompts appear after one day when help was used or checks were not passed, and after three days for a self-reported independent passing attempt. These are simple practice heuristics. Use “Add a 15-minute coding task” to fit practice into the same capacity-limited daily plan. Logging coding minutes can also log focus; leave that option off if the focus timer already logged those minutes.
 

@@ -194,4 +194,17 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.at.session_state['page'],'Focus')
         self.assertEqual(self.at.session_state['timer']['minutes'],5)
 
+    def test_compact_navigation_and_touch_schedule_form(self):
+        next(x for x in self.at.selectbox if x.key=='compact_page').set_value('Planner').run()
+        self.assertEqual(self.at.session_state['page'],'Planner')
+        next(x for x in self.at.text_input if x.label=='New block activity').set_value('Walk outside')
+        next(b for b in self.at.button if b.label=='Add time block').click().run()
+        self.assert_clean()
+        saved=next(iter(self.data['checkins'].values()))['schedule']
+        self.assertTrue(any(b['title']=='Walk outside' for b in saved))
+        key=next(b.key for b in self.at.button if b.key and '_remove_' in b.key and b.key.endswith('_'+str(len(saved)-1)))
+        next(b for b in self.at.button if b.key==key).click().run()
+        self.assert_clean()
+        self.assertFalse(any(b['title']=='Walk outside' for b in next(iter(self.data['checkins'].values()))['schedule']))
+
 if __name__=='__main__': unittest.main()

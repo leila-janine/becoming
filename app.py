@@ -16,9 +16,10 @@ from domain import (TZ, AREAS, DAYS, now, uid, minute, clock, default_profile, s
                     routine_blocks, validate_schedule, task_status)
 from focus_timer import start_timer, remaining, pause, resume, advance
 from money_analytics import money_dashboard
+from coding_runner import editor as browser_editor, validate_editor_result
 from storage import (LocalStore, CloudStore, StorageError, auth_request,
                      get_record, export_records, COLLECTIONS, RunStore, validate_backup)
-from ui import style, hero, card, gentle, stat, esc
+from ui import style, hero, card, gentle, stat, esc, summary_table
 
 st.set_page_config(page_title='Becoming · your daily space', page_icon='🌿', layout='wide')
 ROOT = Path(__file__).parent
@@ -77,6 +78,17 @@ def quick_start(title, task_id=None):
 
 def navigate(page):
     st.session_state.page=page
+
+
+def compact_navigate():
+    navigate(st.session_state.compact_page)
+
+
+def sign_out():
+    try:
+        requests.post(secret('SUPABASE_URL').rstrip('/')+'/auth/v1/logout',headers={'apikey':secret('SUPABASE_ANON_KEY'),'Authorization':'Bearer '+st.session_state.auth['access_token']},timeout=10)
+    except requests.RequestException: pass
+    st.session_state.clear()
 
 
 def plan_for(day, check, budget=None, energy=None, leave=None):
@@ -232,6 +244,51 @@ def schedule_rows(frame):
     return validate_schedule(blocks)
 
 
+def schedule_panel(blocks, key, collection, row):
+    """Touch-friendly editing first, with the optional bulk grid retained."""
+    def commit(updated):
+        try:
+            validate_schedule(updated)
+        except ValueError as exc:
+            st.info(str(exc)); return
+        field,version=('routine','routine_version') if collection=='profile' else ('schedule','schedule_version')
+        save(collection,{**row,field:updated,version:row.get(version,0)+1})
+        st.rerun()
+    if not blocks: st.caption('No time blocks. Add one below when you need it.')
+    kinds=['Work','Rest','Personal']
+    for i,block in enumerate(blocks):
+        with st.expander(f'{clock(block["start"])}–{clock(block["end"])} · {block["title"]}'):
+            with st.form(key+'_block_'+str(i)):
+                title=st.text_input('Block activity',block['title'])
+                kind=st.selectbox('Block type',kinds,index=kinds.index(block['kind'].title()))
+                a,b=st.columns(2)
+                start=a.time_input('Block begins (PHT)',dtime(block['start']//60,block['start']%60))
+                end=b.time_input('Block ends (PHT)',dtime(block['end']//60,block['end']%60))
+                if st.form_submit_button('Save time block',width='stretch'):
+                    updated=[dict(b) for b in blocks]
+                    updated[i]={'title':title.strip(),'kind':kind.lower(),'start':start.hour*60+start.minute,'end':end.hour*60+end.minute}
+                    commit(updated)
+            if st.button('Remove time block',key=key+'_remove_'+str(i),width='stretch'):
+                commit([b for n,b in enumerate(blocks) if n!=i])
+    with st.expander('Add a time block'):
+        with st.form(key+'_add'):
+            title=st.text_input('New block activity')
+            kind=st.selectbox('New block type',kinds,index=2)
+            a,b=st.columns(2)
+            start=a.time_input('New block begins (PHT)',dtime(19))
+            end=b.time_input('New block ends (PHT)',dtime(20))
+            if st.form_submit_button('Add time block',type='primary',width='stretch'):
+                commit([*blocks,{'title':title.strip(),'kind':kind.lower(),'start':start.hour*60+start.minute,'end':end.hour*60+end.minute}])
+    with st.expander('Edit as a table · optional'):
+        st.caption('For bulk edits on a larger screen. Scroll inside the table to reach every column.')
+        with st.form(key+'_table'):
+            edited=schedule_editor(blocks,key)
+            if st.form_submit_button('Save schedule' if collection=='checkins' else 'Save recurring blocks',type='primary'):
+                try: updated=schedule_rows(edited)
+                except ValueError as exc: st.info(str(exc))
+                else: commit(updated)
+
+
 def planner_page():
     hero('Make room for what matters', 'A plan that fits your life.', 'Keep your commitments visible. Leave enough space for meals, transitions, and life happening.')
     tab1,tab2,tab3=st.tabs(['Day & week','Tasks','Appointments'])
@@ -246,18 +303,11 @@ def planner_page():
             save('checkins',{**check,'id':selected.isoformat(),'energy':energy,'minutes':budget,'leave':leave,'saved_at':now().isoformat()})
             st.rerun()
         st.markdown('#### Your schedule')
-        st.caption('Change any block when your day changes. Add a row at the bottom; select a row to delete it. Appointments are managed in the Appointments tab.')
+        st.caption('Tap a block to change its time or activity. Add or remove blocks as your day changes. Appointments are managed in their own tab.')
         if check.get('schedule') is not None: st.caption('Using your custom schedule for this date.')
         else: st.caption('Starting from your recurring routine in Your space.')
-        with st.form('schedule_'+selected.isoformat()):
-            edited=schedule_editor(check.get('schedule') if check.get('schedule') is not None else day_blocks(profile,selected,[]),
-                                   f'daily_schedule_{selected}_{check.get("schedule_version",0)}')
-            if st.form_submit_button('Save schedule',type='primary'):
-                try:
-                    blocks=schedule_rows(edited)
-                    save('checkins',{**check,'id':selected.isoformat(),'schedule':blocks,'schedule_version':check.get('schedule_version',0)+1})
-                    st.rerun()
-                except ValueError as exc: st.info(str(exc))
+        schedule_panel(check.get('schedule') if check.get('schedule') is not None else day_blocks(profile,selected,[]),
+                       f'daily_schedule_{selected}_{check.get("schedule_version",0)}','checkins',{**check,'id':selected.isoformat()})
         if st.button('Reset this day to my routine'):
             updated={k:v for k,v in check.items() if k!='schedule'}
             save('checkins',{**updated,'id':selected.isoformat(),'schedule_version':check.get('schedule_version',0)+1})
@@ -281,7 +331,7 @@ def planner_page():
             p=plan_for(day,ch)
             work=', '.join(clock(b['start'])+'–'+clock(b['end']) for b in p['blocks'] if b['kind']=='work') or 'Off'
             rows.append({'Day':day.strftime('%a %d %b'),'Work':work,'Focus suggestions':', '.join(x['title'] for x in p['plan']) or 'Open / rest','Minutes':p['used']})
-        st.dataframe(pd.DataFrame(rows),hide_index=True,width='stretch')
+        summary_table(pd.DataFrame(rows))
         st.caption('Each day is an independent preview, so an unfinished task may appear more than once. Mark it complete or change “Available from” to move it.')
         ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Becoming//Personal planner//EN']
         def clean(value): return str(value).replace('\\','\\\\').replace('\n','\\n').replace(';','\\;').replace(',','\\,')
@@ -533,13 +583,30 @@ def coding_page():
         card(challenge['title'],challenge['prompt'],f'{challenge["level"]} · {challenge["skill"]} · about {challenge["minutes"]} minutes')
         st.markdown('#### Expected behavior')
         st.code(challenge['cases'],language='text')
+        draft_key='attempt_code_'+challenge_id
+        status_key='attempt_checks_'+challenge_id
+        if draft_key not in st.session_state:
+            previous=sorted([a for a in attempts if a['challenge_id']==challenge_id],key=lambda a:a.get('logged_at',''),reverse=True)
+            st.session_state[draft_key]=(previous[0].get('code') or challenge['starter']) if previous else challenge['starter']
+        if challenge['extension'] in ['py','sql']:
+            st.markdown('#### Code & run here')
+            result=validate_editor_result(browser_editor(challenge,st.session_state[draft_key]))
+            revision_key='editor_revision_'+challenge_id
+            if result and result['revision']!=st.session_state.get(revision_key):
+                st.session_state[revision_key]=result['revision']
+                st.session_state[draft_key]=result['code']
+                st.session_state[status_key]={'passed':'Checks passed (self-reported)','failed':'Some checks failed'}.get(result['status'],'Not run / design review')
+            st.caption('Run your code or save the editor draft, then record your attempt below to keep it across devices. Python uses a browser runtime; SQL uses a fresh SQLite practice database with the example tables. Supplied checks cover examples, not every possible edge case.')
+        elif challenge['extension']=='dart':
+            st.info('Dart / Flutter execution uses DartPad or your local SDK. The in-page runner currently supports Python and SQLite.')
+            st.link_button('Open DartPad', 'https://dartpad.dev/')
         gentle('Try explaining the inputs, expected output, and edge cases before writing code. Take a first attempt, then use a hint if it helps. Revisit the idea later without copying.')
         a,b=st.columns(2)
         a.download_button('Download starter + checks',practice_file(challenge),challenge['id']+'.'+challenge['extension'],'text/plain',width='stretch')
         b.link_button('Read the official reference',challenge['url'],width='stretch')
         if challenge['extension'] in ['py','dart']:
             command='python '+challenge['id']+'.py' if challenge['extension']=='py' else 'dart run '+challenge['id']+'.dart'
-            st.caption('Edit the downloaded file in VS Code and run: '+command+'. The starter may intentionally fail until you implement it. No extra packages are required for these checks.')
+            st.caption('You can also download the exercise for VS Code and run: '+command+'. Starters may intentionally fail until implemented. No extra packages are required for the supplied checks.')
         elif challenge['extension']=='sql':
             st.caption('Run the script in a new disposable SQLite or PostgreSQL practice session. Compare its output with the three expected rows above.')
         else: st.caption('Write a short design note and check each failure case. This exercise is reviewed by reasoning, not an automated correctness score.')
@@ -551,11 +618,12 @@ def coding_page():
         with st.form('coding_attempt_'+challenge_id):
             st.markdown('#### Save my attempt')
             approach=st.text_area('My approach and edge cases',placeholder='What is the simplest correct approach? What can go wrong?')
-            code=st.text_area('My code / design notes',height=200,placeholder='Paste code you wrote or your design proposal here.')
+            with st.expander('Code included in this attempt',expanded=challenge['extension'] not in ['py','sql']):
+                code=st.text_area('My code / design notes',key=draft_key,height=200,placeholder='Your saved editor draft or design proposal.')
             a,b=st.columns(2)
             minutes=a.number_input('Minutes I practiced',1,240,challenge['minutes'])
             assistance=b.selectbox('Support I used',['Independent attempt','Documentation / hint','AI or worked solution','Pairing / reviewer'])
-            test_status=st.selectbox('My local check result',['Not run / design review','Some checks failed','Checks passed (self-reported)'])
+            test_status=st.selectbox('My local check result',['Not run / design review','Some checks failed','Checks passed (self-reported)'],key=status_key)
             lesson=st.text_input('What I learned / what I will change next')
             log_focus=st.checkbox('Also log these minutes as focus time',value=True,help='Leave off if you already logged this session with the focus timer.')
             if st.form_submit_button('Save coding practice',type='primary'):
@@ -565,7 +633,7 @@ def coding_page():
                     save('coding',{'id':identifier,'kind':'attempt','date':TODAY.isoformat(),'logged_at':now().isoformat(),'challenge_id':challenge_id,'title':challenge['title'],'track':track,'minutes':minutes,'approach':approach,'code':code,'assistance':assistance,'test_status':test_status,'lesson':lesson,'review_on':review_date(TODAY,assistance=='Independent attempt',test_status=='Checks passed (self-reported)')})
                     if log_focus: store.put('sessions',{'id':'coding-'+identifier,'date':TODAY.isoformat(),'minutes':minutes,'title':'Coding · '+challenge['title']})
                     st.rerun()
-        st.caption('Code is stored as text. It is not executed on the Streamlit server, and local test results are self-reported. Review dates are simple practice prompts, not a validated mastery score.')
+        st.caption('Code is saved as text and runs only in your browser, never on the Streamlit server. Runtime downloads use jsDelivr. Browser results remain client-reported and can be changed in the attempt form. Review dates are simple practice prompts, not a validated mastery score.')
         with st.expander('Fit this exercise into my schedule'):
             practice_day=st.date_input('Available for practice from',TODAY,min_value=TODAY,key='practice_day')
             if st.button('Add a 15-minute coding task'):
@@ -704,8 +772,9 @@ def money_dashboard_view(month,budget):
     st.markdown('#### Where your spending goes')
     if data['categories']:
         frame=pd.DataFrame([{'Category':k,'Expenses (₱)':v} for k,v in data['categories'].items()]).sort_values('Expenses (₱)',ascending=False)
-        st.bar_chart(frame,x='Category',y='Expenses (₱)',color='#8E7B67',horizontal=True)
-        st.dataframe(frame,hide_index=True,width='stretch')
+        chart_frame=frame.replace({'Category':{'Move / glasses / irregular':'Move & irregular'}})
+        st.bar_chart(chart_frame,x='Category',y='Expenses (₱)',color='#8E7B67',horizontal=True,height=280)
+        summary_table(frame,money_columns=['Expenses (₱)'])
     else: st.caption('No expense entries for this month yet.')
     st.markdown('#### Daily spending')
     if data['daily']:
@@ -713,20 +782,19 @@ def money_dashboard_view(month,budget):
         stop=min(TODAY,(start.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1))
         days=pd.date_range(start,stop,freq='D')
         daily=pd.DataFrame({'Date':days,'Expenses (₱)':[data['daily'].get(d.date().isoformat(),0.) for d in days]})
-        st.line_chart(daily,x='Date',y='Expenses (₱)',color='#8E7B67')
+        st.line_chart(daily,x='Date',y='Expenses (₱)',color='#8E7B67',height=260)
         st.caption('A zero means no expense was logged that day.')
     else: st.caption('Your daily trend will appear after you log expenses.')
     st.markdown('#### Plan versus actual')
-    st.dataframe(pd.DataFrame(data['comparison']),hide_index=True,width='stretch',
-                 column_config={k:st.column_config.NumberColumn(format='₱ %.2f') for k in ['Planned (₱)','Actual (₱)','Remaining (₱)']})
+    summary_table(pd.DataFrame(data['comparison']),money_columns=['Planned (₱)','Actual (₱)','Remaining (₱)'])
     st.caption('Negative remaining means the logged amount exceeds your plan. Savings and investment rows show transfers toward those goals, not spending.')
     joy=float(budget.get('joy',0))-data['categories'].get('Enjoyment',0)
     if budget.get('joy',0): gentle(f'Your chosen enjoyment budget has ₱{joy:,.2f} remaining.' if joy>=0 else f'Enjoyment is ₱{abs(joy):,.2f} above this month’s plan. You can review the plan as your needs change.')
     st.markdown('#### The last six months')
     if any(row['Income'] or row['Expenses'] or row['Transfers'] for row in data['trend']):
         trend=pd.DataFrame(data['trend'])
-        st.bar_chart(trend,x='Month',y=['Income','Expenses','Transfers'],stack=False,color=['#73836A','#8E7B67','#8A8096'])
-        st.dataframe(trend,hide_index=True,width='stretch')
+        st.line_chart(trend,x='Month',y=['Income','Expenses','Transfers'],height=280,color=['#73836A','#8E7B67','#8A8096'])
+        summary_table(trend,money_columns=['Income','Expenses','Transfers'])
     else: st.caption('Monthly comparisons will grow as you add your entries.')
 
 
@@ -883,14 +951,7 @@ def settings_page():
                 save('profile',{**profile,'name':name.strip(),'role':role,'target_role':target,'workdays':days,'work_start':start.strftime('%H:%M'),'work_end':end.strftime('%H:%M'),'wake':wake.strftime('%H:%M'),'sleep':sleep.strftime('%H:%M'),'buffer':buffer}); st.rerun()
     st.subheader('Recurring meal & personal blocks')
     st.caption('These blocks start each day’s schedule. Work hours come from the settings above. Daily overrides in Planner stay as you saved them.')
-    with st.form('routine'):
-        edited=schedule_editor(routine_blocks(profile),f'routine_editor_{profile.get("routine_version",0)}')
-        if st.form_submit_button('Save recurring blocks',type='primary'):
-            try:
-                blocks=schedule_rows(edited)
-                save('profile',{**profile,'routine':blocks,'routine_version':profile.get('routine_version',0)+1})
-                st.rerun()
-            except ValueError as exc: st.info(str(exc))
+    schedule_panel(routine_blocks(profile),f'routine_editor_{profile.get("routine_version",0)}','profile',profile)
     st.markdown('### My data')
     st.caption('Cloud records are loaded on each interaction. Use Refresh to fetch updates from another device. Avoid editing the same record on two devices at once: the last saved edit wins.')
     if st.button('Refresh from my saved records'): st.rerun()
@@ -940,13 +1001,17 @@ try:
         if st.session_state.get('timer'):
             st.caption('Timer paused · return to Focus' if st.session_state.timer.get('paused') else 'Timer active · return to Focus')
         if store.mode=='cloud':
-            if st.button('Sign out'):
-                try:
-                    requests.post(secret('SUPABASE_URL').rstrip('/')+'/auth/v1/logout',headers={'apikey':secret('SUPABASE_ANON_KEY'),'Authorization':'Bearer '+st.session_state.auth['access_token']},timeout=10)
-                except requests.RequestException: pass
-                st.session_state.clear(); st.rerun()
+            st.button('Sign out',on_click=sign_out)
         st.markdown('---')
         st.caption('A small step is still a step.')
+    with st.container(key='compact_navigation'):
+        st.session_state.compact_page=page
+        st.selectbox('Your daily space',pages,key='compact_page',on_change=compact_navigate)
+        with st.expander('Account & sync'):
+            st.caption('Philippine time · '+now().strftime('%d %b · %I:%M %p'))
+            st.caption('Private local records' if store.mode=='local' else 'Signed in · synced records')
+            if st.button('Refresh saved records',key='compact_refresh',width='stretch'): st.rerun()
+            if store.mode=='cloud': st.button('Sign out',key='compact_signout',on_click=sign_out,width='stretch')
     {'Today':today_page,'Planner':planner_page,'Focus':focus_page,'Coding practice':coding_page,'Career & learning':growth_page,'Job market':market_page,'Voice & confidence':voice_page,'Money':money_page,'Reflect':reflect_page,'Resources':sources_page,'Your space':settings_page}[page]()
 except StorageError as exc:
     st.error(str(exc))
