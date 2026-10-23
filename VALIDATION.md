@@ -16,6 +16,7 @@ Built and checked on **23 October 2026**.
 - Python application modules compile successfully.
 - Compact navigation changes pages, and touch-friendly schedule forms add/remove blocks. Browser-editor configurations include the correct checks/setup; bounded editor reports reject unknown statuses and malformed values. JavaScript modules pass Node syntax checks.
 - The production worker was tested using the same Pyodide 314.0.7 WASM runtime under Node: all seven Python worked solutions and the SQLite exercise pass; syntax errors are returned; run namespaces are independent; runaway execution can be terminated. Run the reproducible check with `node tests/run_runtime_checks.mjs /path/to/installed/pyodide-package` after installing `pyodide@314.0.7` in a separate development directory. This verifies worker execution, not visual rendering.
+- Live browser verification: the deployed standalone editor loads and runs Python assertions plus an in-memory SQLite query, displaying “Python checks passed” and “SQLite checks passed: 5”. An infinite loop leaves the controls responsive and Stop terminates it. Lazy dynamic loading replaced the initially failing static worker import. Static editor files contain no personal records; the authenticated exercise-to-attempt flow is covered by AppTest/contract tests, rather than a live authenticated browser session.
 
 Test runtime: Python 3.12.14, Streamlit 1.66.1, requests 2.34.2, pandas 2.2.3.
 

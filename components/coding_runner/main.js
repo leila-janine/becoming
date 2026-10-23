@@ -16,7 +16,7 @@ function run(checks=false) {
   submittedCode=source.value;runWithChecks=checks;setBusy(true);output.textContent='';status.textContent='Loading the browser runtime…';
   arm(90000,'Runtime loading timed out. Check your connection and try again.');
   if(!worker) {
-    worker=new Worker(new URL('./worker.mjs?v=2',window.location.href),{type:'module'});
+    worker=new Worker(new URL('./worker.mjs?v=3',window.location.href),{type:'module'});
     worker.onmessage=event=>{
       const data=event.data;
       if(data.type==='executing') {status.textContent='Running '+(runWithChecks?'code and checks':'code')+'…';arm(10000,'Time limit reached (10 seconds). Check for a loop, then run again.');return;}

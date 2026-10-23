@@ -1,7 +1,8 @@
 let ready;
 function getRuntime() {
   if(!ready)ready=import('https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs')
-    .then(({loadPyodide})=>loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/'}));
+    .then(({loadPyodide})=>loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/'}))
+    .catch(error=>{ready=null;throw error;});
   return ready;
 }
 const sqlProgram=String.raw`
