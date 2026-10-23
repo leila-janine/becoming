@@ -1,0 +1,5 @@
+# Review a retry that could duplicate a payment
+
+A client sends POST /orders. The server creates the order, but the response times out. The client retries the same request, and a second order is created. Write a short design proposal to prevent duplicate orders while allowing safe retries. Do not use real payment data.
+
+Use a client-generated idempotency key scoped to the authenticated customer and operation. Store a canonical request fingerprint and a durable result. Enforce a unique database constraint on the scoped key. Create the order and associate the result atomically. Replays with the same fingerprint return the stored result; a changed payload under the same key returns a documented conflict. Define behavior for in-flight requests, retries after crashes, expiration, and downstream operations. Test duplicate sequential requests, concurrent requests, timeouts after commit, different users using the same key, and mismatched payloads.
