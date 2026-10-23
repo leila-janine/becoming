@@ -1,6 +1,9 @@
-import {loadPyodide} from 'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs';
-
-const ready=loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/'});
+let ready;
+function getRuntime() {
+  if(!ready)ready=import('https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs')
+    .then(({loadPyodide})=>loadPyodide({indexURL:'https://cdn.jsdelivr.net/pyodide/v314.0.7/full/'}));
+  return ready;
+}
 const sqlProgram=String.raw`
 import sqlite3, json
 connection=sqlite3.connect(':memory:')
@@ -39,7 +42,7 @@ self.onmessage=async event=>{
   let text='',namespace;
   const append=line=>{if(text.length<20000)text+=(String(line)+'\n').slice(0,20000-text.length);};
   try {
-    const pyodide=await ready;
+    const pyodide=await getRuntime();
     pyodide.setStdout({batched:append});pyodide.setStderr({batched:append});
     pyodide.setStdin({stdin:()=>{throw new Error('Interactive input() is not supported. Set your input values in the code.');}});
     namespace=pyodide.toPy({__name__:'__main__'});

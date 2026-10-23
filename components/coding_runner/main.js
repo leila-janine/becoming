@@ -16,7 +16,7 @@ function run(checks=false) {
   submittedCode=source.value;runWithChecks=checks;setBusy(true);output.textContent='';status.textContent='Loading the browser runtime…';
   arm(90000,'Runtime loading timed out. Check your connection and try again.');
   if(!worker) {
-    worker=new Worker(new URL('./worker.mjs',window.location.href),{type:'module'});
+    worker=new Worker(new URL('./worker.mjs?v=2',window.location.href),{type:'module'});
     worker.onmessage=event=>{
       const data=event.data;
       if(data.type==='executing') {status.textContent='Running '+(runWithChecks?'code and checks':'code')+'…';arm(10000,'Time limit reached (10 seconds). Check for a loop, then run again.');return;}
@@ -27,7 +27,7 @@ function run(checks=false) {
         value(data.ok?(runWithChecks?'passed':'ran'):'failed',submittedCode);resize();
       }
     };
-    worker.onerror=()=>{endWorker();output.textContent='The runtime could not load or stopped unexpectedly. Check your connection and retry. Your draft has not been removed.';status.textContent='Runtime unavailable.';value('failed',submittedCode);resize();};
+    worker.onerror=event=>{endWorker();output.textContent='The runtime could not load or stopped unexpectedly. Check your connection and retry. Your draft has not been removed.\n'+String(event.message||'The browser could not start its code worker.');status.textContent='Runtime unavailable.';value('failed',submittedCode);resize();};
   }
   worker.postMessage({...config,code:submittedCode,runChecks:checks});
 }
